@@ -1,5 +1,6 @@
 import os
 import json
+
 # schedule — это библиотека для планирования периодических задач (job scheduling) в Python.
 import schedule
 import time
@@ -20,11 +21,20 @@ class BirthdayBot:
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
         self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-Lite")
+        self.chat_id = os.getenv("CHAT_ID")
 
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
         if not self.gigachat_credentials:
             raise ValueError("GIGACHAT_CREDENTIALS не найден в .env файле")
+        if not self.chat_id:
+            raise ValueError("CHAT_ID не найден в .env файле")
+        
+        # Преобразуем chat_id в int
+        try:
+            self.chat_id = int(self.chat_id)
+        except ValueError:
+            raise ValueError("CHAT_ID должен быть числом")
 
         self.bot = Bot(token=self.bot_token)
         self.gigachat = GigaChat(
@@ -37,25 +47,18 @@ class BirthdayBot:
         self.users_config_path = "users_config.json"
         self.prompt_file_path = "birthday_prompt.txt"
 
-    def load_users_config(self) -> tuple[List[Dict], int]:
-        """Загружает конфигурацию пользователей из JSON файла
-        Возвращает кортеж (список пользователей, chat_id)
-        """
+    def load_users_config(self) -> List[Dict]:
+        """Загружает конфигурацию пользователей из JSON файла"""
         try:
             with open(self.users_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                users = config.get("users", [])
-                chat_id = config.get("chat_id")
-                if not chat_id:
-                    print("Не указан chat_id в конфигурации")
-                    return [], None
-                return users, chat_id
+                return config.get("users", [])
         except FileNotFoundError:
             print(f"Файл {self.users_config_path} не найден")
-            return [], None
+            return []
         except json.JSONDecodeError:
             print(f"Ошибка чтения JSON из файла {self.users_config_path}")
-            return [], None
+            return []
 
     def load_birthday_prompt(self) -> str:
         """Загружает промпт для генерации поздравлений"""
@@ -66,11 +69,11 @@ class BirthdayBot:
             print(f"Файл {self.prompt_file_path} не найден")
             return "Поздравь {name} с днем рождения!"
 
-    def get_today_birthdays(self) -> tuple[List[Dict], int]:
-        """Возвращает кортеж (список именинников, chat_id)"""
-        users, chat_id = self.load_users_config()
-        if not users or not chat_id:
-            return [], None
+        def get_today_birthdays(self) -> List[Dict]:
+        """Возвращает список пользователей, у которых сегодня день рождения"""
+        users = self.load_users_config()
+        if not users:
+            return []
         
         today = datetime.now().strftime("%d.%m")
 
@@ -79,7 +82,7 @@ class BirthdayBot:
             if user.get("birthday") == today:
                 birthday_users.append(user)
 
-        return birthday_users, chat_id
+        return birthday_users
 
     def generate_birthday_message(self, name: str) -> str:
         """Генерирует поздравление с помощью GigaChat"""
@@ -93,16 +96,12 @@ class BirthdayBot:
             print(f"Ошибка при генерации поздравления: {e}")
             return f"🎉 Поздравляем {name} с днем рождения! Желаем здоровья, счастья и всех благ! 🎂"
 
-    async def send_birthday_messages(self):
+        async def send_birthday_messages(self):
         """Отправляет поздравления всем именинникам"""
-        birthday_users, chat_id = self.get_today_birthdays()
+        birthday_users = self.get_today_birthdays()
 
         if not birthday_users:
             print("Сегодня нет именинников")
-            return
-        
-        if not chat_id:
-            print("Не указан chat_id в конфигурации")
             return
 
         for user in birthday_users:
@@ -120,9 +119,9 @@ class BirthdayBot:
                     final_message = f"{name}\n\n{birthday_message}"
 
                 # Отправляем сообщение
-                await self.bot.send_message(chat_id=chat_id, text=final_message)
+                await self.bot.send_message(chat_id=self.chat_id, text=final_message)
 
-                print(f"Поздравление отправлено для {name} в чат {chat_id}")
+                print(f"Поздравление отправлено для {name} в чат {self.chat_id}")
 
             except Exception as e:
                 print(

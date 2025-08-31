@@ -30,6 +30,9 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 # GigaChat API credentials
 GIGACHAT_CREDENTIALS=your_gigachat_credentials_here
 GIGACHAT_SCOPE=GIGACHAT_API_PERS
+
+# Chat ID чата, куда отправлять поздравления
+CHAT_ID=-1001234567890
 ```
 
 ### 3. Настройка пользователей
@@ -38,7 +41,6 @@ GIGACHAT_SCOPE=GIGACHAT_API_PERS
 
 ```json
 {
-  "chat_id": -1001234567890,
   "users": [
     {
       "name": "Имя Фамилия",
@@ -50,10 +52,11 @@ GIGACHAT_SCOPE=GIGACHAT_API_PERS
 ```
 
 Где:
-- `chat_id` - ID чата, куда отправлять поздравления (общий для всех пользователей)
 - `name` - полное имя пользователя
 - `username` - имя пользователя в Telegram (без @)
 - `birthday` - дата рождения в формате ДД.ММ
+
+**Важно:** Chat ID теперь хранится в `.env` файле для безопасности.
 
 ### 4. Настройка промпта
 
@@ -76,6 +79,7 @@ uv run birthday_bot.py
 2. Отправьте любое сообщение в чат
 3. Перейдите по ссылке: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
 4. Найдите в ответе поле `"chat":{"id": -1001234567890}`
+5. Добавьте найденный ID в `.env` файл как `CHAT_ID=-1001234567890`
 
 ## Структура проекта
 
