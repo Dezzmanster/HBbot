@@ -1,5 +1,6 @@
 import os
 import json
+# schedule — это библиотека для планирования периодических задач (job scheduling) в Python.
 import schedule
 import time
 import asyncio
@@ -18,6 +19,7 @@ class BirthdayBot:
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+        self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-Lite")
 
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
@@ -29,23 +31,31 @@ class BirthdayBot:
             credentials=self.gigachat_credentials,
             scope=self.gigachat_scope,
             verify_ssl_certs=False,
+            model=self.gigachat_model,
         )
 
         self.users_config_path = "users_config.json"
         self.prompt_file_path = "birthday_prompt.txt"
 
-    def load_users_config(self) -> List[Dict]:
-        """Загружает конфигурацию пользователей из JSON файла"""
+    def load_users_config(self) -> tuple[List[Dict], int]:
+        """Загружает конфигурацию пользователей из JSON файла
+        Возвращает кортеж (список пользователей, chat_id)
+        """
         try:
             with open(self.users_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                return config.get("users", [])
+                users = config.get("users", [])
+                chat_id = config.get("chat_id")
+                if not chat_id:
+                    print("Не указан chat_id в конфигурации")
+                    return [], None
+                return users, chat_id
         except FileNotFoundError:
             print(f"Файл {self.users_config_path} не найден")
-            return []
+            return [], None
         except json.JSONDecodeError:
             print(f"Ошибка чтения JSON из файла {self.users_config_path}")
-            return []
+            return [], None
 
     def load_birthday_prompt(self) -> str:
         """Загружает промпт для генерации поздравлений"""
@@ -56,9 +66,12 @@ class BirthdayBot:
             print(f"Файл {self.prompt_file_path} не найден")
             return "Поздравь {name} с днем рождения!"
 
-    def get_today_birthdays(self) -> List[Dict]:
-        """Возвращает список пользователей, у которых сегодня день рождения"""
-        users = self.load_users_config()
+    def get_today_birthdays(self) -> tuple[List[Dict], int]:
+        """Возвращает кортеж (список именинников, chat_id)"""
+        users, chat_id = self.load_users_config()
+        if not users or not chat_id:
+            return [], None
+        
         today = datetime.now().strftime("%d.%m")
 
         birthday_users = []
@@ -66,7 +79,7 @@ class BirthdayBot:
             if user.get("birthday") == today:
                 birthday_users.append(user)
 
-        return birthday_users
+        return birthday_users, chat_id
 
     def generate_birthday_message(self, name: str) -> str:
         """Генерирует поздравление с помощью GigaChat"""
@@ -82,21 +95,20 @@ class BirthdayBot:
 
     async def send_birthday_messages(self):
         """Отправляет поздравления всем именинникам"""
-        birthday_users = self.get_today_birthdays()
+        birthday_users, chat_id = self.get_today_birthdays()
 
         if not birthday_users:
             print("Сегодня нет именинников")
+            return
+        
+        if not chat_id:
+            print("Не указан chat_id в конфигурации")
             return
 
         for user in birthday_users:
             try:
                 name = user.get("name", "Дорогой друг")
                 username = user.get("username", "")
-                chat_id = user.get("chat_id")
-
-                if not chat_id:
-                    print(f"Не указан chat_id для пользователя {name}")
-                    continue
 
                 # Генерируем поздравление
                 birthday_message = self.generate_birthday_message(name)

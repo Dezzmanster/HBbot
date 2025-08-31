@@ -38,22 +38,22 @@ GIGACHAT_SCOPE=GIGACHAT_API_PERS
 
 ```json
 {
+  "chat_id": -1001234567890,
   "users": [
     {
       "name": "Имя Фамилия",
       "username": "telegram_username",
-      "birthday": "DD.MM",
-      "chat_id": -1001234567890
+      "birthday": "DD.MM"
     }
   ]
 }
 ```
 
 Где:
+- `chat_id` - ID чата, куда отправлять поздравления (общий для всех пользователей)
 - `name` - полное имя пользователя
 - `username` - имя пользователя в Telegram (без @)
 - `birthday` - дата рождения в формате ДД.ММ
-- `chat_id` - ID чата, куда отправлять поздравления
 
 ### 4. Настройка промпта
 
