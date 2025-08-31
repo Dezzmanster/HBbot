@@ -117,8 +117,20 @@ class BirthdayBot:
                 else:
                     final_message = f"{name}\n\n{birthday_message}"
 
-                # Отправляем сообщение
-                await self.bot.send_message(chat_id=self.chat_id, text=final_message)
+                # Отправляем сообщение с поддержкой Markdown
+                try:
+                    await self.bot.send_message(
+                        chat_id=self.chat_id, 
+                        text=final_message,
+                        parse_mode='Markdown'
+                    )
+                except Exception as markdown_error:
+                    # Если ошибка Markdown, отправляем без разметки
+                    print(f"Ошибка Markdown разметки, отправляем без форматирования: {markdown_error}")
+                    await self.bot.send_message(
+                        chat_id=self.chat_id, 
+                        text=final_message
+                    )
 
                 print(f"Поздравление отправлено для {name} в чат {self.chat_id}")
 
