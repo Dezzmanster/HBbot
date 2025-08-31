@@ -20,7 +20,7 @@ class BirthdayBot:
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
-        self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-Lite")
+        self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
         self.chat_id = os.getenv("CHAT_ID")
 
         if not self.bot_token:
@@ -121,6 +121,9 @@ class BirthdayBot:
                 await self.bot.send_message(chat_id=self.chat_id, text=final_message)
 
                 print(f"Поздравление отправлено для {name} в чат {self.chat_id}")
+                
+                # Небольшая задержка между сообщениями
+                await asyncio.sleep(1)
 
             except Exception as e:
                 print(
@@ -129,7 +132,17 @@ class BirthdayBot:
 
     def run_birthday_check(self):
         """Запускает проверку дней рождения (синхронная обертка)"""
-        asyncio.run(self.send_birthday_messages())
+        try:
+            # Создаем новый event loop для каждого запуска
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.send_birthday_messages())
+        except Exception as e:
+            print(f"Ошибка при выполнении проверки: {e}")
+        finally:
+            # Закрываем loop корректно
+            if 'loop' in locals():
+                loop.close()
 
     def start_scheduler(self):
         """Запускает планировщик для ежедневной проверки"""
@@ -154,7 +167,7 @@ def main():
 
         # Можно сразу проверить, есть ли сегодня именинники
         print("Проверяем именинников на сегодня...")
-        asyncio.run(bot.send_birthday_messages())
+        bot.run_birthday_check()
 
         # Запускаем планировщик
         bot.start_scheduler()
