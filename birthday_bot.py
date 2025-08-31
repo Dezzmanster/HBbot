@@ -73,19 +73,14 @@ class BirthdayBot:
             print(f"Файл {self.prompt_file_path} не найден")
             return "Поздравь {name} с днем рождения!"
 
-        def get_today_birthdays(self) -> List[Dict]:
+    def get_today_birthdays(self) -> List[Dict]:
         """Возвращает список пользователей, у которых сегодня день рождения"""
         users, _ = self.load_config()
         if not users:
             return []
-        
+
         today = datetime.now().strftime("%d.%m")
-
-        birthday_users = []
-        for user in users:
-            if user.get("birthday") == today:
-                birthday_users.append(user)
-
+        birthday_users = [user for user in users if user.get("birthday") == today]
         return birthday_users
 
     def generate_birthday_message(self, name: str) -> str:
@@ -140,7 +135,7 @@ class BirthdayBot:
         """Запускает планировщик для ежедневной проверки"""
         # Получаем время из конфига
         _, birthday_time = self.load_config()
-        
+
         # Планируем проверку каждый день в указанное время
         schedule.every().day.at(birthday_time).do(self.run_birthday_check)
 
