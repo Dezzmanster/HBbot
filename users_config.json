@@ -1,13 +1,14 @@
 {
+    "birthday_time": "09:00",
     "users": [
         {
-            "name": "Иван Иванов",
-            "username": "ivan_ivanov",
-            "birthday": "15.03"
+            "name": "Полина",
+            "username": "polinagruk",
+            "birthday": "01.09"
         },
         {
-            "name": "Мария Петрова",
-            "username": "maria_petrova",
+            "name": "Светлана",
+            "username": "clairemix",
             "birthday": "22.07"
         },
         {

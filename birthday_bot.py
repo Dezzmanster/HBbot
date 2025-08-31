@@ -29,7 +29,7 @@ class BirthdayBot:
             raise ValueError("GIGACHAT_CREDENTIALS не найден в .env файле")
         if not self.chat_id:
             raise ValueError("CHAT_ID не найден в .env файле")
-        
+
         # Преобразуем chat_id в int
         try:
             self.chat_id = int(self.chat_id)
@@ -47,18 +47,22 @@ class BirthdayBot:
         self.users_config_path = "users_config.json"
         self.prompt_file_path = "birthday_prompt.txt"
 
-    def load_users_config(self) -> List[Dict]:
-        """Загружает конфигурацию пользователей из JSON файла"""
+    def load_config(self) -> tuple[List[Dict], str]:
+        """Загружает конфигурацию из JSON файла
+        Возвращает кортеж (список пользователей, время отправки)
+        """
         try:
             with open(self.users_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                return config.get("users", [])
+                users = config.get("users", [])
+                birthday_time = config.get("birthday_time", "09:00")
+                return users, birthday_time
         except FileNotFoundError:
             print(f"Файл {self.users_config_path} не найден")
-            return []
+            return [], "09:00"
         except json.JSONDecodeError:
             print(f"Ошибка чтения JSON из файла {self.users_config_path}")
-            return []
+            return [], "09:00"
 
     def load_birthday_prompt(self) -> str:
         """Загружает промпт для генерации поздравлений"""
@@ -71,7 +75,7 @@ class BirthdayBot:
 
         def get_today_birthdays(self) -> List[Dict]:
         """Возвращает список пользователей, у которых сегодня день рождения"""
-        users = self.load_users_config()
+        users, _ = self.load_config()
         if not users:
             return []
         
@@ -96,7 +100,7 @@ class BirthdayBot:
             print(f"Ошибка при генерации поздравления: {e}")
             return f"🎉 Поздравляем {name} с днем рождения! Желаем здоровья, счастья и всех благ! 🎂"
 
-        async def send_birthday_messages(self):
+    async def send_birthday_messages(self):
         """Отправляет поздравления всем именинникам"""
         birthday_users = self.get_today_birthdays()
 
@@ -134,10 +138,13 @@ class BirthdayBot:
 
     def start_scheduler(self):
         """Запускает планировщик для ежедневной проверки"""
-        # Планируем проверку каждый день в 9:00
-        schedule.every().day.at("09:00").do(self.run_birthday_check)
+        # Получаем время из конфига
+        _, birthday_time = self.load_config()
+        
+        # Планируем проверку каждый день в указанное время
+        schedule.every().day.at(birthday_time).do(self.run_birthday_check)
 
-        print("Бот запущен! Проверка дней рождения каждый день в 9:00")
+        print(f"Бот запущен! Проверка дней рождения каждый день в {birthday_time}")
         print("Для остановки нажмите Ctrl+C")
 
         while True:
