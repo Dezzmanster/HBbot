@@ -114,6 +114,10 @@ venv.bak/
 # Configuration with personal data
 users_config.json
 
+# Log files
+birthday_bot.log
+*.log
+
 # Spyder project settings
 .spyderproject
 .spyproject
