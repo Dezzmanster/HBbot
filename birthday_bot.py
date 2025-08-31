@@ -1,7 +1,5 @@
 import os
 import json
-
-# schedule — это библиотека для планирования периодических задач (job scheduling) в Python.
 import schedule
 import time
 import asyncio
@@ -21,7 +19,6 @@ class BirthdayBot:
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
         self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
-        # CHAT_ID теперь опциональный - можно задавать для каждого пользователя
         self.default_chat_id = os.getenv("CHAT_ID")
 
         if not self.bot_token:
