@@ -1,15 +1,18 @@
 {
     "birthday_time": "09:00",
+    "default_chat_id": -1001234567890,
     "users": [
         {
             "name": "Иван Иванов",
             "username": "ivan_username",
-            "birthday": "15.03"
+            "birthday": "15.03",
+            "chat_id": -1001234567890
         },
         {
             "name": "Мария Петрова",
             "username": "maria_username",
-            "birthday": "22.07"
+            "birthday": "22.07",
+            "chat_id": -1009876543210
         },
         {
             "name": "Алексей Сидоров",

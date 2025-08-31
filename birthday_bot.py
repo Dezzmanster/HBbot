@@ -21,20 +21,20 @@ class BirthdayBot:
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
         self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
-        self.chat_id = os.getenv("CHAT_ID")
+        # CHAT_ID теперь опциональный - можно задавать для каждого пользователя
+        self.default_chat_id = os.getenv("CHAT_ID")
 
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
         if not self.gigachat_credentials:
             raise ValueError("GIGACHAT_CREDENTIALS не найден в .env файле")
-        if not self.chat_id:
-            raise ValueError("CHAT_ID не найден в .env файле")
 
-        # Преобразуем chat_id в int
-        try:
-            self.chat_id = int(self.chat_id)
-        except ValueError:
-            raise ValueError("CHAT_ID должен быть числом")
+        # Преобразуем default_chat_id в int, если указан
+        if self.default_chat_id:
+            try:
+                self.default_chat_id = int(self.default_chat_id)
+            except ValueError:
+                raise ValueError("CHAT_ID должен быть числом")
 
         self.bot = Bot(token=self.bot_token)
         self.gigachat = GigaChat(
@@ -47,22 +47,23 @@ class BirthdayBot:
         self.users_config_path = "users_config.json"
         self.prompt_file_path = "birthday_prompt.txt"
 
-    def load_config(self) -> tuple[List[Dict], str]:
+    def load_config(self) -> tuple[List[Dict], str, int]:
         """Загружает конфигурацию из JSON файла
-        Возвращает кортеж (список пользователей, время отправки)
+        Возвращает кортеж (список пользователей, время отправки, default_chat_id)
         """
         try:
             with open(self.users_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
                 users = config.get("users", [])
                 birthday_time = config.get("birthday_time", "09:00")
-                return users, birthday_time
+                config_default_chat = config.get("default_chat_id")
+                return users, birthday_time, config_default_chat
         except FileNotFoundError:
             print(f"Файл {self.users_config_path} не найден")
-            return [], "09:00"
+            return [], "09:00", None
         except json.JSONDecodeError:
             print(f"Ошибка чтения JSON из файла {self.users_config_path}")
-            return [], "09:00"
+            return [], "09:00", None
 
     def load_birthday_prompt(self) -> str:
         """Загружает промпт для генерации поздравлений"""
@@ -75,7 +76,7 @@ class BirthdayBot:
 
     def get_today_birthdays(self) -> List[Dict]:
         """Возвращает список пользователей, у которых сегодня день рождения"""
-        users, _ = self.load_config()
+        users, _, _ = self.load_config()
         if not users:
             return []
 
@@ -103,10 +104,25 @@ class BirthdayBot:
             print("Сегодня нет именинников")
             return
 
+        # Получаем default_chat_id из конфига
+        _, _, config_default_chat = self.load_config()
+
         for user in birthday_users:
             try:
                 name = user.get("name", "Дорогой друг")
                 username = user.get("username", "")
+
+                # Определяем chat_id для пользователя
+                user_chat_id = user.get("chat_id")
+                if not user_chat_id:
+                    # Используем default_chat_id из конфига или из .env
+                    user_chat_id = config_default_chat or self.default_chat_id
+
+                if not user_chat_id:
+                    print(
+                        f"Не найден chat_id для пользователя {name}. Укажите chat_id в конфигурации или установите CHAT_ID в .env"
+                    )
+                    continue
 
                 # Генерируем поздравление
                 birthday_message = self.generate_birthday_message(name)
@@ -120,19 +136,18 @@ class BirthdayBot:
                 # Отправляем сообщение с поддержкой Markdown
                 try:
                     await self.bot.send_message(
-                        chat_id=self.chat_id, 
-                        text=final_message,
-                        parse_mode='Markdown'
+                        chat_id=user_chat_id, text=final_message, parse_mode="Markdown"
                     )
                 except Exception as markdown_error:
                     # Если ошибка Markdown, отправляем без разметки
-                    print(f"Ошибка Markdown разметки, отправляем без форматирования: {markdown_error}")
+                    print(
+                        f"Ошибка Markdown разметки, отправляем без форматирования: {markdown_error}"
+                    )
                     await self.bot.send_message(
-                        chat_id=self.chat_id, 
-                        text=final_message
+                        chat_id=user_chat_id, text=final_message
                     )
 
-                print(f"Поздравление отправлено для {name} в чат {self.chat_id}")
+                print(f"Поздравление отправлено для {name} в чат {user_chat_id}")
 
                 # Небольшая задержка между сообщениями
                 await asyncio.sleep(1)
@@ -159,7 +174,7 @@ class BirthdayBot:
     def start_scheduler(self):
         """Запускает планировщик для ежедневной проверки"""
         # Получаем время из конфига
-        _, birthday_time = self.load_config()
+        _, birthday_time, _ = self.load_config()
 
         # Планируем проверку каждый день в указанное время
         schedule.every().day.at(birthday_time).do(self.run_birthday_check)

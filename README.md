@@ -48,10 +48,23 @@ cp users_config.example.json users_config.json
 ```json
 {
   "birthday_time": "09:00",
+  "default_chat_id": -1001234567890,
   "users": [
     {
       "name": "Имя Фамилия",
       "username": "telegram_username",
+      "birthday": "DD.MM",
+      "chat_id": -1001234567890
+    },
+    {
+      "name": "Другой Пользователь",
+      "username": "another_username", 
+      "birthday": "DD.MM",
+      "chat_id": -1009876543210
+    },
+    {
+      "name": "Третий Пользователь",
+      "username": "third_username",
       "birthday": "DD.MM"
     }
   ]
@@ -60,14 +73,21 @@ cp users_config.example.json users_config.json
 
 Где:
 - `birthday_time` - время отправки поздравлений в формате ЧЧ:ММ (по умолчанию 09:00)
+- `default_chat_id` - chat ID по умолчанию для пользователей без индивидуального chat_id
 - `name` - полное имя пользователя
 - `username` - имя пользователя в Telegram (без @)
 - `birthday` - дата рождения в формате ДД.ММ
+- `chat_id` - (опционально) индивидуальный chat ID для конкретного пользователя
+
+**Приоритет выбора chat_id:**
+1. Индивидуальный `chat_id` в настройках пользователя
+2. `default_chat_id` из конфигурации
+3. `CHAT_ID` из `.env` файла
 
 **Важно:** 
-- Chat ID хранится в `.env` файле для безопасности
 - Файл `users_config.json` добавлен в `.gitignore` и не попадает в репозиторий
 - Используйте `users_config.example.json` как шаблон для создания своего конфига
+- Можно отправлять поздравления в разные чаты для разных пользователей
 
 ### 4. Настройка промпта
 
