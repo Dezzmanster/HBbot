@@ -16,11 +16,11 @@ load_dotenv()
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler('birthday_bot.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler("birthday_bot.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class BirthdayBot:
 
         logger.debug("Инициализация Telegram Bot...")
         self.bot = Bot(token=self.bot_token)
-        
+
         logger.debug("Инициализация GigaChat...")
         self.gigachat = GigaChat(
             credentials=self.gigachat_credentials,
@@ -76,7 +76,9 @@ class BirthdayBot:
                 users = config.get("users", [])
                 birthday_time = config.get("birthday_time", "09:00")
                 config_default_chat = config.get("default_chat_id")
-                logger.debug(f"Загружено {len(users)} пользователей, время отправки: {birthday_time}")
+                logger.debug(
+                    f"Загружено {len(users)} пользователей, время отправки: {birthday_time}"
+                )
                 return users, birthday_time, config_default_chat
         except FileNotFoundError:
             logger.error(f"Файл {self.users_config_path} не найден")
@@ -91,7 +93,9 @@ class BirthdayBot:
             with open(self.prompt_file_path, "r", encoding="utf-8") as f:
                 return f.read().strip()
         except FileNotFoundError:
-            logger.warning(f"Файл {self.prompt_file_path} не найден, используем стандартный промпт")
+            logger.warning(
+                f"Файл {self.prompt_file_path} не найден, используем стандартный промпт"
+            )
             return "Поздравь {name} с днем рождения!"
 
     def get_today_birthdays(self) -> List[Dict]:
@@ -199,7 +203,9 @@ class BirthdayBot:
         # Планируем проверку каждый день в указанное время
         schedule.every().day.at(birthday_time).do(self.run_birthday_check)
 
-        logger.info(f"Бот запущен! Проверка дней рождения каждый день в {birthday_time}")
+        logger.info(
+            f"Бот запущен! Проверка дней рождения каждый день в {birthday_time}"
+        )
         logger.info("Для остановки нажмите Ctrl+C")
 
         while True:
