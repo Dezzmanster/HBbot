@@ -1,0 +1,20 @@
+{
+    "birthday_time": "09:00",
+    "users": [
+        {
+            "name": "Иван Иванов",
+            "username": "ivan_username",
+            "birthday": "15.03"
+        },
+        {
+            "name": "Мария Петрова",
+            "username": "maria_username",
+            "birthday": "22.07"
+        },
+        {
+            "name": "Алексей Сидоров",
+            "username": "alex_username",
+            "birthday": "08.12"
+        }
+    ]
+}

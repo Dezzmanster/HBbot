@@ -111,6 +111,9 @@ env.bak/
 venv.bak/
 .uv/
 
+# Configuration with personal data
+users_config.json
+
 # Spyder project settings
 .spyderproject
 .spyproject
