@@ -155,16 +155,18 @@ uv run birthday_bot.py
 4. Найдите в ответе поле `"chat":{"id": -1001234567890}`
 5. Добавьте найденный ID в `.env` файл как `CHAT_ID=-1001234567890`
 
-## Структура проекта
+## Возможные проблемы
 
-```
-HBbot/
-├── birthday_bot.py      # Основной файл бота
-├── constants.py         # Константы и настройки приложения
-├── users_config.json    # Конфигурация пользователей
-├── birthday_prompt.txt  # Промпт для генерации поздравлений
-├── .env                 # Переменные окружения (не в git)
-├── .gitignore          # Исключения для git
-├── pyproject.toml      # Конфигурация проекта
-└── README.md           # Документация
+### Проблемы с uv
+Если возникают ошибки с uv (например, `SIGKILL`), используйте альтернативный способ:
+
+```bash
+# Очистите кеш uv
+uv cache clean
+
+# Или используйте стандартный venv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m ensurepip --upgrade
+python -m pip install langchain-gigachat python-dotenv python-telegram-bot schedule
 ```
