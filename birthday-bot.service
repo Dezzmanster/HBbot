@@ -1,26 +1,18 @@
 [Unit]
-Description=Birthday Bot - Telegram Bot for Birthday Greetings
-After=network.target
-Wants=network.target
+Description=HappyBirthdayBot
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
-WorkingDirectory=/opt/HBbot
-Environment=PATH=/opt/HBbot/.venv/bin
-ExecStart=/opt/HBbot/.venv/bin/python /opt/HBbot/birthday_bot.py
+User=dezzman
+ExecStart=/home/dezzman/app/HBbot/.venv/bin/python /home/dezzman/app/HBbot/birthday_bot.py
+WorkingDirectory=/home/dezzman/app/HBbot
+Environment=VIRTUAL_ENV=/home/dezzman/app/HBbot/.venv
+Environment=PATH=/home/dezzman/app/HBbot/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/home/dezzman/app/HBbot
 Restart=always
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-# Настройки безопасности
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=strict
-ReadWritePaths=/opt/HBbot
 
 [Install]
 WantedBy=multi-user.target
