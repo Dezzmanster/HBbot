@@ -9,6 +9,7 @@ from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
 from telegram import Bot
 from langchain_gigachat.chat_models import GigaChat
+from telegram.ext import Application
 
 # Импортируем константы
 from constants import (
@@ -63,6 +64,9 @@ class BirthdayBot:
         self.users_config_path = USERS_CONFIG_FILE
         self.prompt_file_path = PROMPT_FILE
 
+        # Создаем единый event loop для всего приложения
+        self.loop = None
+
         logger.debug("BirthdayBot успешно инициализирован")
 
     def _load_environment_variables(self) -> None:
@@ -94,7 +98,10 @@ class BirthdayBot:
     def _initialize_services(self) -> None:
         """Инициализирует внешние сервисы (Telegram Bot и GigaChat)"""
         logger.debug("Инициализация Telegram Bot...")
-        self.bot = Bot(token=self.bot_token)
+
+        # Создаем Application с настройками пула соединений
+        self.application = Application.builder().token(self.bot_token).build()
+        self.bot = self.application.bot
 
         logger.debug("Инициализация GigaChat...")
         self.gigachat = GigaChat(
@@ -284,32 +291,60 @@ class BirthdayBot:
     async def _send_telegram_message(self, chat_id: int, text: str) -> None:
         """
         Отправляет сообщение в Telegram с поддержкой Markdown
-
-        При ошибке разметки отправляет сообщение без форматирования
         """
         try:
             await self.bot.send_message(
-                chat_id=chat_id, text=text, parse_mode="Markdown"
+                chat_id=chat_id,
+                text=text,
+                parse_mode="Markdown",
+                read_timeout=30,
+                write_timeout=30,
+                connect_timeout=30,
+                pool_timeout=30,
             )
         except Exception as markdown_error:
             logger.warning(
                 f"Ошибка Markdown разметки, отправляем без форматирования: {markdown_error}"
             )
-            await self.bot.send_message(chat_id=chat_id, text=text)
+            try:
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    pool_timeout=30,
+                )
+            except Exception as send_error:
+                logger.error(f"Критическая ошибка отправки сообщения: {send_error}")
+                raise
 
     def run_birthday_check(self) -> None:
         """Выполняет проверку дней рождения (синхронная обертка для asyncio)"""
         try:
-            # Создаем новый event loop для каждого запуска
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.send_birthday_messages())
+            # Используем существующий event loop или создаем новый
+            if self.loop is None or self.loop.is_closed():
+                self.loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.loop)
+
+            # Инициализируем Application если еще не сделали
+            if not self.application.running:
+                self.loop.run_until_complete(self.application.initialize())
+
+            self.loop.run_until_complete(self.send_birthday_messages())
+
         except Exception as e:
             logger.error(f"Ошибка при выполнении проверки: {e}")
-        finally:
-            # Закрываем loop корректно
-            if "loop" in locals():
-                loop.close()
+
+    def cleanup(self) -> None:
+        """Очищает ресурсы при завершении работы"""
+        try:
+            if self.application.running:
+                self.loop.run_until_complete(self.application.shutdown())
+            if self.loop and not self.loop.is_closed():
+                self.loop.close()
+        except Exception as e:
+            logger.error(f"Ошибка при очистке ресурсов: {e}")
 
     def start_scheduler(self) -> None:
         """Запускает планировщик для ежедневной проверки дней рождения"""
@@ -332,6 +367,7 @@ class BirthdayBot:
 
 def main():
     """Точка входа в приложение"""
+    bot = None
     try:
         logger.info("Инициализация бота...")
         bot = BirthdayBot()
@@ -348,6 +384,9 @@ def main():
         logger.info("Бот остановлен пользователем")
     except Exception as e:
         logger.critical(f"Критическая ошибка при запуске бота: {e}", exc_info=True)
+    finally:
+        if bot:
+            bot.cleanup()
 
 
 if __name__ == "__main__":
