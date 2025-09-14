@@ -1,11 +1,23 @@
-import os
+"""
+Birthday Bot - автоматическая отправка поздравлений с днем рождения в Telegram.
+
+Функционал:
+- Отправка поздравлений в день рождения
+- Отслеживание отправленных сообщений
+- Повторная отправка в случае неудачи (в течение 2 дней)
+- Генерация персонализированных поздравлений с помощью GigaChat
+"""
+
+import asyncio
 import json
+import logging
+import os
 import schedule
 import time
-import asyncio
-import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 from dotenv import load_dotenv
 from langchain_gigachat.chat_models import GigaChat
 from telegram.ext import Application
@@ -25,6 +37,10 @@ from constants import (
     MESSAGE_DELAY,
     SCHEDULE_CHECK_INTERVAL,
     RETRY_DAYS,
+    TELEGRAM_READ_TIMEOUT,
+    TELEGRAM_WRITE_TIMEOUT,
+    TELEGRAM_CONNECT_TIMEOUT,
+    TELEGRAM_POOL_TIMEOUT,
     DEFAULT_BIRTHDAY_MESSAGE,
     DEFAULT_BELATED_MESSAGE,
 )
@@ -32,10 +48,19 @@ from constants import (
 # Загружаем переменные окружения
 load_dotenv()
 
+# Определяем типы данных для улучшения читаемости кода
+UserConfig = Dict[str, Any]
+UserData = Dict[str, Any]
+TrackingData = Dict[str, Any]
 
-# Настройка логирования
+
 def setup_logging() -> logging.Logger:
-    """Настраивает систему логирования для бота"""
+    """
+    Настраивает систему логирования для бота.
+
+    Returns:
+        Настроенный логгер
+    """
     logging.basicConfig(
         level=logging.INFO,
         format=LOG_FORMAT,
@@ -51,28 +76,38 @@ logger = setup_logging()
 
 
 class BirthdayBot:
-    """Телеграм бот для автоматической отправки поздравлений с днем рождения"""
+    """
+    Телеграм бот для автоматической отправки поздравлений с днем рождения.
 
-    def __init__(self):
-        """Инициализирует бота с необходимыми сервисами и конфигурацией"""
+    Основной функционал:
+    - Отправка поздравлений в день рождения
+    - Отслеживание доставки сообщений
+    - Повторная отправка при неудаче
+    - Генерация персонализированных поздравлений
+    """
+
+    def __init__(self) -> None:
+        """Инициализирует бота с необходимыми сервисами и конфигурацией."""
         logger.debug("Инициализация BirthdayBot...")
 
-        # Загрузка и проверка обязательных переменных окружения
-        self._load_environment_variables()
+        # Настройка путей к файлам
+        self._setup_file_paths()
 
-        # Инициализация сервисов
+        # Загрузка переменных окружения и инициализация сервисов
+        self._load_environment_variables()
         self._initialize_services()
 
-        # Пути к файлам конфигурации
-        self.users_config_path = USERS_CONFIG_FILE
-        self.prompt_file_path = PROMPT_FILE
-        self.belated_prompt_file_path = BELATED_PROMPT_FILE
-        self.delivery_tracking_path = DELIVERY_TRACKING_FILE
-
-        # Создаем единый event loop для всего приложения
-        self.loop = None
+        # Event loop для async операций
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
 
         logger.debug("BirthdayBot успешно инициализирован")
+
+    def _setup_file_paths(self) -> None:
+        """Настраивает пути к файлам конфигурации."""
+        self.users_config_path = Path(USERS_CONFIG_FILE)
+        self.prompt_file_path = Path(PROMPT_FILE)
+        self.belated_prompt_file_path = Path(BELATED_PROMPT_FILE)
+        self.delivery_tracking_path = Path(DELIVERY_TRACKING_FILE)
 
     def _load_environment_variables(self) -> None:
         """Загружает и валидирует переменные окружения"""
@@ -118,15 +153,18 @@ class BirthdayBot:
 
     def load_config(self) -> Tuple[List[Dict], str, Optional[int]]:
         """
-        Загружает конфигурацию из JSON файла
+        Загружает конфигурацию пользователей из JSON файла.
 
         Returns:
             Кортеж (список пользователей, время отправки, default_chat_id)
         """
+        if not self.users_config_path.exists():
+            logger.error(f"Файл конфигурации {self.users_config_path} не найден")
+            return [], DEFAULT_BIRTHDAY_TIME, None
+
         try:
             logger.debug(f"Загрузка конфигурации из {self.users_config_path}")
-            with open(self.users_config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            config = json.loads(self.users_config_path.read_text(encoding="utf-8"))
 
             users = config.get("users", [])
             birthday_time = config.get("birthday_time", DEFAULT_BIRTHDAY_TIME)
@@ -137,84 +175,103 @@ class BirthdayBot:
             )
             return users, birthday_time, config_default_chat
 
-        except FileNotFoundError:
-            logger.error(f"Файл {self.users_config_path} не найден")
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON в {self.users_config_path}: {e}")
             return [], DEFAULT_BIRTHDAY_TIME, None
-        except json.JSONDecodeError:
-            logger.error(f"Ошибка чтения JSON из файла {self.users_config_path}")
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при загрузке конфигурации: {e}")
             return [], DEFAULT_BIRTHDAY_TIME, None
+
+    def _load_prompt_file(self, file_path: Path, default_prompt: str) -> str:
+        """
+        Универсальный метод для загрузки промпта из файла.
+
+        Args:
+            file_path: Путь к файлу промпта
+            default_prompt: Промпт по умолчанию при отсутствии файла
+
+        Returns:
+            Содержимое промпта
+        """
+        if not file_path.exists():
+            logger.warning(f"Файл {file_path} не найден, используем стандартный промпт")
+            return default_prompt
+
+        try:
+            return file_path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.error(f"Ошибка чтения файла {file_path}: {e}")
+            return default_prompt
 
     def load_birthday_prompt(self) -> str:
         """
-        Загружает промпт для генерации поздравлений
+        Загружает промпт для генерации обычных поздравлений.
 
         Returns:
             Шаблон промпта для GigaChat
         """
-        try:
-            with open(self.prompt_file_path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            logger.warning(
-                f"Файл {self.prompt_file_path} не найден, используем стандартный промпт"
-            )
-            return "Поздравь {name} с днем рождения!"
+        return self._load_prompt_file(
+            self.prompt_file_path, "Поздравь {name} с днем рождения!"
+        )
 
     def load_belated_birthday_prompt(self) -> str:
         """
-        Загружает промпт для генерации запоздалых поздравлений
+        Загружает промпт для генерации запоздалых поздравлений.
 
         Returns:
             Шаблон промпта для запоздалых поздравлений
         """
-        try:
-            with open(self.belated_prompt_file_path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            logger.warning(
-                f"Файл {self.belated_prompt_file_path} не найден, используем стандартный промпт"
-            )
-            return "Поздравь {name} с прошедшим днем рождения! Извинись за опоздание и пожелай всего наилучшего."
+        default_prompt = (
+            "Поздравь {name} с прошедшим днем рождения! "
+            "Извинись за опоздание и пожелай всего наилучшего."
+        )
+        return self._load_prompt_file(self.belated_prompt_file_path, default_prompt)
+
+    def _create_empty_tracking_data(self) -> Dict:
+        """Создает пустую структуру данных отслеживания для текущего года."""
+        current_year = datetime.now().year
+        return {"year": current_year, "sent_messages": {}}
 
     def load_delivery_tracking(self) -> Dict:
         """
-        Загружает данные об отправленных поздравлениях
+        Загружает данные об отправленных поздравлениях.
 
         Returns:
             Словарь с данными об отправленных поздравлениях
         """
+        if not self.delivery_tracking_path.exists():
+            logger.debug("Файл отслеживания не найден, создаем новую структуру")
+            return self._create_empty_tracking_data()
+
         try:
-            with open(self.delivery_tracking_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                current_year = datetime.now().year
-
-                # Если год изменился, создаем новую структуру
-                if data.get("year") != current_year:
-                    logger.info(
-                        f"Новый год {current_year}, сбрасываем историю отправок"
-                    )
-                    return {"year": current_year, "sent_messages": {}}
-
-                return data
-        except FileNotFoundError:
-            logger.debug(f"Файл {self.delivery_tracking_path} не найден, создаем новый")
+            data = json.loads(self.delivery_tracking_path.read_text(encoding="utf-8"))
             current_year = datetime.now().year
-            return {"year": current_year, "sent_messages": {}}
-        except json.JSONDecodeError:
-            logger.error(f"Ошибка чтения JSON из файла {self.delivery_tracking_path}")
-            current_year = datetime.now().year
-            return {"year": current_year, "sent_messages": {}}
+
+            # Если год изменился, создаем новую структуру
+            if data.get("year") != current_year:
+                logger.info(f"Новый год {current_year}, сбрасываем историю отправок")
+                return self._create_empty_tracking_data()
+
+            return data
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON в {self.delivery_tracking_path}: {e}")
+            return self._create_empty_tracking_data()
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при загрузке отслеживания: {e}")
+            return self._create_empty_tracking_data()
 
     def save_delivery_tracking(self, data: Dict) -> None:
         """
-        Сохраняет данные об отправленных поздравлениях
+        Сохраняет данные об отправленных поздравлениях.
 
         Args:
             data: Словарь с данными для сохранения
         """
         try:
-            with open(self.delivery_tracking_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            self.delivery_tracking_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
             logger.debug("Данные отслеживания отправки сохранены")
         except Exception as e:
             logger.error(f"Ошибка сохранения данных отслеживания: {e}")
@@ -270,10 +327,41 @@ class BirthdayBot:
             and tracking_data["sent_messages"][birthday][user_name].get("sent", False)
         )
 
+    def _is_birthday_match(self, birthday: str, check_date: datetime) -> bool:
+        """
+        Проверяет, совпадает ли день рождения с проверяемой датой.
+
+        Args:
+            birthday: День рождения в формате DD.MM
+            check_date: Дата для проверки
+
+        Returns:
+            True, если даты совпадают
+        """
+        if not birthday:
+            return False
+        return birthday == check_date.strftime(DATE_FORMAT)
+
+    def _create_pending_user(self, user: Dict, days_ago: int) -> Dict:
+        """
+        Создает объект пользователя с информацией о запоздании.
+
+        Args:
+            user: Исходные данные пользователя
+            days_ago: Количество дней назад был день рождения
+
+        Returns:
+            Обновленный объект пользователя
+        """
+        user_copy = user.copy()
+        user_copy["is_belated"] = days_ago > 0
+        user_copy["days_late"] = days_ago
+        return user_copy
+
     def get_pending_birthdays(self) -> List[Dict]:
         """
-        Возвращает список пользователей, которым нужно отправить поздравления
-        (в день рождения или в течение 2 дней после)
+        Возвращает список пользователей, которым нужно отправить поздравления.
+        Проверяет дни рождения за последние RETRY_DAYS дней (включая сегодня).
 
         Returns:
             Список словарей с данными пользователей и флагом is_belated
@@ -288,26 +376,20 @@ class BirthdayBot:
         # Проверяем последние RETRY_DAYS + 1 день (включая сегодня)
         for days_ago in range(RETRY_DAYS + 1):
             check_date = current_date - timedelta(days=days_ago)
-            check_date_str = check_date.strftime(DATE_FORMAT)
-            is_belated = days_ago > 0
 
-            # Ищем пользователей с днем рождения в эту дату
             for user in users:
                 name = user.get("name", DEFAULT_UNKNOWN_NAME)
                 birthday = user.get("birthday")
 
-                if not birthday:
-                    continue
-
-                if birthday == check_date_str:
+                if self._is_birthday_match(birthday, check_date):
                     # Проверяем, не было ли уже отправлено поздравление
                     if not self.is_message_sent(name, birthday):
-                        user_copy = user.copy()
-                        user_copy["is_belated"] = is_belated
-                        user_copy["days_late"] = days_ago
-                        pending_users.append(user_copy)
+                        pending_user = self._create_pending_user(user, days_ago)
+                        pending_users.append(pending_user)
+
                         logger.debug(
-                            f"Найден неотправленный подарок для {name} ({birthday}), дней назад: {days_ago}"
+                            f"Найден неотправленный подарок для {name} ({birthday}), "
+                            f"дней назад: {days_ago}"
                         )
 
         logger.info(f"Найдено неотправленных поздравлений: {len(pending_users)}")
@@ -361,7 +443,7 @@ class BirthdayBot:
                 prompt_template = self.load_belated_birthday_prompt()
             else:
                 prompt_template = self.load_birthday_prompt()
-            
+
             prompt = prompt_template.format(name=name)
 
             response = self.gigachat.invoke(prompt)
@@ -469,30 +551,40 @@ class BirthdayBot:
 
     async def _send_telegram_message(self, chat_id: int, text: str) -> None:
         """
-        Отправляет сообщение в Telegram с поддержкой Markdown
+        Отправляет сообщение в Telegram с поддержкой Markdown и fallback без форматирования.
+
+        Args:
+            chat_id: ID чата для отправки
+            text: Текст сообщения
+
+        Raises:
+            Exception: При критической ошибке отправки
         """
+        timeout_kwargs = {
+            "read_timeout": TELEGRAM_READ_TIMEOUT,
+            "write_timeout": TELEGRAM_WRITE_TIMEOUT,
+            "connect_timeout": TELEGRAM_CONNECT_TIMEOUT,
+            "pool_timeout": TELEGRAM_POOL_TIMEOUT,
+        }
+
         try:
+            # Попытка отправки с Markdown форматированием
             await self.bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode="Markdown",
-                read_timeout=30,
-                write_timeout=30,
-                connect_timeout=30,
-                pool_timeout=30,
+                **timeout_kwargs,
             )
         except Exception as markdown_error:
             logger.warning(
                 f"Ошибка Markdown разметки, отправляем без форматирования: {markdown_error}"
             )
             try:
+                # Fallback: отправка без форматирования
                 await self.bot.send_message(
                     chat_id=chat_id,
                     text=text,
-                    read_timeout=30,
-                    write_timeout=30,
-                    connect_timeout=30,
-                    pool_timeout=30,
+                    **timeout_kwargs,
                 )
             except Exception as send_error:
                 logger.error(f"Критическая ошибка отправки сообщения: {send_error}")
@@ -544,27 +636,31 @@ class BirthdayBot:
             time.sleep(SCHEDULE_CHECK_INTERVAL)
 
 
-def main():
-    """Точка входа в приложение"""
-    bot = None
+def main() -> None:
+    """Точка входа в приложение."""
+    bot: Optional[BirthdayBot] = None
+
     try:
         logger.info("Инициализация бота...")
         bot = BirthdayBot()
         logger.info("Бот успешно инициализирован")
 
-        # Проверяем именинников на сегодня при запуске
-        logger.info("Проверяем именинников на сегодня...")
+        # Проверяем именинников при запуске
+        logger.info("Проверяем неотправленные поздравления...")
         bot.run_birthday_check()
 
         # Запускаем планировщик для регулярных проверок
+        logger.info("Запуск планировщика...")
         bot.start_scheduler()
 
     except KeyboardInterrupt:
         logger.info("Бот остановлен пользователем")
     except Exception as e:
         logger.critical(f"Критическая ошибка при запуске бота: {e}", exc_info=True)
+        raise
     finally:
         if bot:
+            logger.info("Очистка ресурсов...")
             bot.cleanup()
 
 

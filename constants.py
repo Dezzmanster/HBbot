@@ -27,6 +27,12 @@ SCHEDULE_CHECK_INTERVAL = 60
 # Количество дней для повторных попыток отправки
 RETRY_DAYS = 2
 
+# Таймауты для Telegram API (в секундах)
+TELEGRAM_READ_TIMEOUT = 30
+TELEGRAM_WRITE_TIMEOUT = 30
+TELEGRAM_CONNECT_TIMEOUT = 30
+TELEGRAM_POOL_TIMEOUT = 30
+
 # Сообщение по умолчанию при ошибке генерации
 DEFAULT_BIRTHDAY_MESSAGE = (
     "🎉🎂 Поздравляем {name} с днем рождения! 🌟✨ "

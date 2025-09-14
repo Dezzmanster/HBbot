@@ -121,6 +121,10 @@ delivery_tracking.json
 birthday_bot.log
 *.log
 
+# Temporary and test files
+test_*.py
+types.py
+
 # Spyder project settings
 .spyderproject
 .spyproject
