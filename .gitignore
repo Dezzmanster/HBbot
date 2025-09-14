@@ -121,6 +121,9 @@ delivery_tracking.json
 birthday_bot.log
 *.log
 
+# Generated images
+generated_images/
+
 # Temporary and test files
 test_*.py
 types.py

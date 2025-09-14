@@ -9,6 +9,7 @@ USERS_CONFIG_FILE = "users_config.json"
 PROMPT_FILE = "birthday_prompt.txt"
 BELATED_PROMPT_FILE = "birthday_belated_prompt.txt"
 DELIVERY_TRACKING_FILE = "delivery_tracking.json"
+IMAGE_PROMPT_FILE = "birthday_image_prompt.txt"
 
 # Значения по умолчанию
 DEFAULT_BIRTHDAY_TIME = "09:00"
@@ -48,3 +49,13 @@ DEFAULT_BELATED_MESSAGE = (
     "Желаем, чтобы этот новый год жизни принес много радости, "
     "успехов и исполнения всех желаний! 🎁💫🥳💖"
 )
+
+# Настройки Kandinsky API
+KANDINSKY_API_URL = "https://api-key.fusionbrain.ai/"
+KANDINSKY_MODEL_ID = 4  # ID модели Kandinsky 3.1
+KANDINSKY_GENERATE_TIMEOUT = 300  # Таймаут генерации изображения (5 минут)
+KANDINSKY_CHECK_TIMEOUT = 10  # Таймаут проверки статуса (10 секунд)
+KANDINSKY_MAX_RETRIES = 30  # Максимальное количество попыток проверки статуса
+KANDINSKY_IMAGE_WIDTH = 1024  # Ширина генерируемого изображения
+KANDINSKY_IMAGE_HEIGHT = 1024  # Высота генерируемого изображения
+KANDINSKY_IMAGES_DIR = "generated_images"  # Папка для сохранения картинок

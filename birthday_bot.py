@@ -22,6 +22,9 @@ from dotenv import load_dotenv
 from langchain_gigachat.chat_models import GigaChat
 from telegram.ext import Application
 
+# Импортируем Kandinsky клиент
+from kandinsky_client import KandinskyClient
+
 # Импортируем константы
 from constants import (
     LOG_FILE,
@@ -115,6 +118,8 @@ class BirthdayBot:
         self.gigachat_credentials = os.getenv("GIGACHAT_CREDENTIALS")
         self.gigachat_scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
         self.gigachat_model = os.getenv("GIGACHAT_MODEL", "GigaChat-2")
+        self.kandinsky_api_key = os.getenv("KANDINSKY_API_KEY")
+        self.kandinsky_secret_key = os.getenv("KANDINSKY_SECRET_KEY")
         self.default_chat_id = os.getenv("CHAT_ID")
 
         # Проверка обязательных переменных
@@ -136,7 +141,7 @@ class BirthdayBot:
                 raise ValueError("CHAT_ID должен быть числом")
 
     def _initialize_services(self) -> None:
-        """Инициализирует внешние сервисы (Telegram Bot и GigaChat)"""
+        """Инициализирует внешние сервисы (Telegram Bot, GigaChat и Kandinsky)"""
         logger.debug("Инициализация Telegram Bot...")
 
         # Создаем Application с настройками пула соединений
@@ -150,6 +155,18 @@ class BirthdayBot:
             verify_ssl_certs=False,
             model=self.gigachat_model,
         )
+
+        # Инициализируем Kandinsky клиент если ключи указаны
+        if self.kandinsky_api_key and self.kandinsky_secret_key:
+            logger.debug("Инициализация Kandinsky...")
+            self.kandinsky_client = KandinskyClient(
+                self.kandinsky_api_key, self.kandinsky_secret_key
+            )
+        else:
+            logger.warning(
+                "KANDINSKY_API_KEY или KANDINSKY_SECRET_KEY не найдены, генерация изображений отключена"
+            )
+            self.kandinsky_client = None
 
     def load_config(self) -> Tuple[List[Dict], str, Optional[int]]:
         """
@@ -457,6 +474,37 @@ class BirthdayBot:
             else:
                 return DEFAULT_BIRTHDAY_MESSAGE.format(name=name)
 
+    async def generate_birthday_image(self, name: str) -> Optional[Path]:
+        """
+        Генерирует изображение для поздравления с днем рождения
+
+        Args:
+            name: Имя именинника
+
+        Returns:
+            Путь к сгенерированному изображению или None при ошибке
+        """
+        if not self.kandinsky_client:
+            logger.info(
+                "Kandinsky клиент не инициализирован, изображение не будет сгенерировано"
+            )
+            return None
+
+        try:
+            logger.info(f"Генерируем изображение для {name}...")
+            image_path = await self.kandinsky_client.generate_birthday_image(name)
+
+            if image_path:
+                logger.info(f"Изображение успешно сгенерировано: {image_path}")
+            else:
+                logger.warning(f"Не удалось сгенерировать изображение для {name}")
+
+            return image_path
+
+        except Exception as e:
+            logger.error(f"Ошибка при генерации изображения для {name}: {e}")
+            return None
+
     async def send_birthday_messages(self) -> None:
         """Отправляет поздравления всем именинникам (включая запоздалые)"""
         pending_users = self.get_pending_birthdays()
@@ -493,11 +541,14 @@ class BirthdayBot:
             if not user_chat_id:
                 return
 
+            # Генерируем изображение (если возможно)
+            image_path = await self.generate_birthday_image(name)
+
             # Генерируем и отправляем поздравление
             birthday_message = self.generate_birthday_message(name, is_belated)
             final_message = self._format_final_message(username, name, birthday_message)
 
-            await self._send_telegram_message(user_chat_id, final_message)
+            await self._send_telegram_message(user_chat_id, final_message, image_path)
 
             # Отмечаем сообщение как отправленное
             self.mark_message_sent(name, birthday, is_belated)
@@ -549,13 +600,16 @@ class BirthdayBot:
         else:
             return f"{name}\n\n{birthday_message}"
 
-    async def _send_telegram_message(self, chat_id: int, text: str) -> None:
+    async def _send_telegram_message(
+        self, chat_id: int, text: str, image_path: Optional[Path] = None
+    ) -> None:
         """
-        Отправляет сообщение в Telegram с поддержкой Markdown и fallback без форматирования.
+        Отправляет сообщение в Telegram с поддержкой Markdown, изображений и fallback без форматирования.
 
         Args:
             chat_id: ID чата для отправки
             text: Текст сообщения
+            image_path: Путь к изображению для отправки (опционально)
 
         Raises:
             Exception: При критической ошибке отправки
@@ -568,6 +622,25 @@ class BirthdayBot:
         }
 
         try:
+            # Если есть изображение, отправляем его вместе с текстом
+            if image_path and image_path.exists():
+                try:
+                    with open(image_path, "rb") as photo:
+                        await self.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=photo,
+                            caption=text,
+                            parse_mode="Markdown",
+                            **timeout_kwargs,
+                        )
+                    logger.debug(f"Сообщение с изображением отправлено в чат {chat_id}")
+                    return
+                except Exception as photo_error:
+                    logger.warning(
+                        f"Ошибка отправки изображения, отправляем только текст: {photo_error}"
+                    )
+                    # Продолжаем с отправкой только текста
+
             # Попытка отправки с Markdown форматированием
             await self.bot.send_message(
                 chat_id=chat_id,
@@ -610,6 +683,11 @@ class BirthdayBot:
     def cleanup(self) -> None:
         """Очищает ресурсы при завершении работы"""
         try:
+            # Очищаем старые изображения
+            if self.kandinsky_client:
+                logger.debug("Очистка старых изображений...")
+                self.kandinsky_client.cleanup_old_images()
+
             if self.application.running:
                 self.loop.run_until_complete(self.application.shutdown())
             if self.loop and not self.loop.is_closed():
