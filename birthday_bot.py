@@ -16,6 +16,7 @@ from constants import (
     LOG_FORMAT,
     USERS_CONFIG_FILE,
     PROMPT_FILE,
+    BELATED_PROMPT_FILE,
     DELIVERY_TRACKING_FILE,
     DEFAULT_BIRTHDAY_TIME,
     DEFAULT_USER_NAME,
@@ -65,6 +66,7 @@ class BirthdayBot:
         # Пути к файлам конфигурации
         self.users_config_path = USERS_CONFIG_FILE
         self.prompt_file_path = PROMPT_FILE
+        self.belated_prompt_file_path = BELATED_PROMPT_FILE
         self.delivery_tracking_path = DELIVERY_TRACKING_FILE
 
         # Создаем единый event loop для всего приложения
@@ -158,10 +160,26 @@ class BirthdayBot:
             )
             return "Поздравь {name} с днем рождения!"
 
+    def load_belated_birthday_prompt(self) -> str:
+        """
+        Загружает промпт для генерации запоздалых поздравлений
+
+        Returns:
+            Шаблон промпта для запоздалых поздравлений
+        """
+        try:
+            with open(self.belated_prompt_file_path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            logger.warning(
+                f"Файл {self.belated_prompt_file_path} не найден, используем стандартный промпт"
+            )
+            return "Поздравь {name} с прошедшим днем рождения! Извинись за опоздание и пожелай всего наилучшего."
+
     def load_delivery_tracking(self) -> Dict:
         """
         Загружает данные об отправленных поздравлениях
-        
+
         Returns:
             Словарь с данными об отправленных поздравлениях
         """
@@ -169,12 +187,14 @@ class BirthdayBot:
             with open(self.delivery_tracking_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 current_year = datetime.now().year
-                
+
                 # Если год изменился, создаем новую структуру
                 if data.get("year") != current_year:
-                    logger.info(f"Новый год {current_year}, сбрасываем историю отправок")
+                    logger.info(
+                        f"Новый год {current_year}, сбрасываем историю отправок"
+                    )
                     return {"year": current_year, "sent_messages": {}}
-                
+
                 return data
         except FileNotFoundError:
             logger.debug(f"Файл {self.delivery_tracking_path} не найден, создаем новый")
@@ -188,7 +208,7 @@ class BirthdayBot:
     def save_delivery_tracking(self, data: Dict) -> None:
         """
         Сохраняет данные об отправленных поздравлениях
-        
+
         Args:
             data: Словарь с данными для сохранения
         """
@@ -199,10 +219,12 @@ class BirthdayBot:
         except Exception as e:
             logger.error(f"Ошибка сохранения данных отслеживания: {e}")
 
-    def mark_message_sent(self, user_name: str, birthday: str, is_belated: bool = False) -> None:
+    def mark_message_sent(
+        self, user_name: str, birthday: str, is_belated: bool = False
+    ) -> None:
         """
         Отмечает сообщение как отправленное
-        
+
         Args:
             user_name: Имя пользователя
             birthday: Дата рождения в формате DD.MM
@@ -210,42 +232,49 @@ class BirthdayBot:
         """
         tracking_data = self.load_delivery_tracking()
         sent_date = datetime.now().strftime("%Y-%m-%d")
-        
+
         if birthday not in tracking_data["sent_messages"]:
             tracking_data["sent_messages"][birthday] = {}
-            
+
         tracking_data["sent_messages"][birthday][user_name] = {
             "birthday": birthday,
             "sent": True,
             "sent_date": sent_date,
             "is_belated": is_belated,
-            "attempts": tracking_data["sent_messages"][birthday].get(user_name, {}).get("attempts", 0) + 1
+            "attempts": tracking_data["sent_messages"][birthday]
+            .get(user_name, {})
+            .get("attempts", 0)
+            + 1,
         }
-        
+
         self.save_delivery_tracking(tracking_data)
-        logger.info(f"Отправка поздравления для {user_name} ({birthday}) отмечена как выполненная")
+        logger.info(
+            f"Отправка поздравления для {user_name} ({birthday}) отмечена как выполненная"
+        )
 
     def is_message_sent(self, user_name: str, birthday: str) -> bool:
         """
         Проверяет, было ли отправлено поздравление для пользователя
-        
+
         Args:
             user_name: Имя пользователя
             birthday: Дата рождения в формате DD.MM
-            
+
         Returns:
             True, если поздравление было отправлено
         """
         tracking_data = self.load_delivery_tracking()
-        return (birthday in tracking_data["sent_messages"] and 
-                user_name in tracking_data["sent_messages"][birthday] and
-                tracking_data["sent_messages"][birthday][user_name].get("sent", False))
+        return (
+            birthday in tracking_data["sent_messages"]
+            and user_name in tracking_data["sent_messages"][birthday]
+            and tracking_data["sent_messages"][birthday][user_name].get("sent", False)
+        )
 
     def get_pending_birthdays(self) -> List[Dict]:
         """
         Возвращает список пользователей, которым нужно отправить поздравления
         (в день рождения или в течение 2 дней после)
-        
+
         Returns:
             Список словарей с данными пользователей и флагом is_belated
         """
@@ -255,21 +284,21 @@ class BirthdayBot:
 
         pending_users = []
         current_date = datetime.now()
-        
+
         # Проверяем последние RETRY_DAYS + 1 день (включая сегодня)
         for days_ago in range(RETRY_DAYS + 1):
             check_date = current_date - timedelta(days=days_ago)
             check_date_str = check_date.strftime(DATE_FORMAT)
             is_belated = days_ago > 0
-            
+
             # Ищем пользователей с днем рождения в эту дату
             for user in users:
                 name = user.get("name", DEFAULT_UNKNOWN_NAME)
                 birthday = user.get("birthday")
-                
+
                 if not birthday:
                     continue
-                    
+
                 if birthday == check_date_str:
                     # Проверяем, не было ли уже отправлено поздравление
                     if not self.is_message_sent(name, birthday):
@@ -277,7 +306,9 @@ class BirthdayBot:
                         user_copy["is_belated"] = is_belated
                         user_copy["days_late"] = days_ago
                         pending_users.append(user_copy)
-                        logger.debug(f"Найден неотправленный подарок для {name} ({birthday}), дней назад: {days_ago}")
+                        logger.debug(
+                            f"Найден неотправленный подарок для {name} ({birthday}), дней назад: {days_ago}"
+                        )
 
         logger.info(f"Найдено неотправленных поздравлений: {len(pending_users)}")
         return pending_users
@@ -325,13 +356,13 @@ class BirthdayBot:
             Текст поздравления
         """
         try:
-            prompt_template = self.load_birthday_prompt()
-            
-            # Модифицируем промпт для запоздалых поздравлений
+            # Выбираем подходящий промпт в зависимости от типа поздравления
             if is_belated:
-                prompt = f"Поздравь {name} с прошедшим днем рождения! Извинись за опоздание и пожелай всего наилучшего."
+                prompt_template = self.load_belated_birthday_prompt()
             else:
-                prompt = prompt_template.format(name=name)
+                prompt_template = self.load_birthday_prompt()
+            
+            prompt = prompt_template.format(name=name)
 
             response = self.gigachat.invoke(prompt)
             return response.content
@@ -391,7 +422,9 @@ class BirthdayBot:
 
             status_msg = "запоздалое поздравление" if is_belated else "поздравление"
             if is_belated:
-                logger.info(f"{status_msg} отправлено для {name} в чат {user_chat_id} (опоздание: {days_late} дн.)")
+                logger.info(
+                    f"{status_msg} отправлено для {name} в чат {user_chat_id} (опоздание: {days_late} дн.)"
+                )
             else:
                 logger.info(f"{status_msg} отправлено для {name} в чат {user_chat_id}")
 

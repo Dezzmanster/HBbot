@@ -7,6 +7,7 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 # Файлы конфигурации
 USERS_CONFIG_FILE = "users_config.json"
 PROMPT_FILE = "birthday_prompt.txt"
+BELATED_PROMPT_FILE = "birthday_belated_prompt.txt"
 DELIVERY_TRACKING_FILE = "delivery_tracking.json"
 
 # Значения по умолчанию
