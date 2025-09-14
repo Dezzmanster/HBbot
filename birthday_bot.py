@@ -4,10 +4,9 @@ import schedule
 import time
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
-from telegram import Bot
 from langchain_gigachat.chat_models import GigaChat
 from telegram.ext import Application
 
@@ -17,13 +16,16 @@ from constants import (
     LOG_FORMAT,
     USERS_CONFIG_FILE,
     PROMPT_FILE,
+    DELIVERY_TRACKING_FILE,
     DEFAULT_BIRTHDAY_TIME,
     DEFAULT_USER_NAME,
     DEFAULT_UNKNOWN_NAME,
     DATE_FORMAT,
     MESSAGE_DELAY,
     SCHEDULE_CHECK_INTERVAL,
+    RETRY_DAYS,
     DEFAULT_BIRTHDAY_MESSAGE,
+    DEFAULT_BELATED_MESSAGE,
 )
 
 # Загружаем переменные окружения
@@ -63,6 +65,7 @@ class BirthdayBot:
         # Пути к файлам конфигурации
         self.users_config_path = USERS_CONFIG_FILE
         self.prompt_file_path = PROMPT_FILE
+        self.delivery_tracking_path = DELIVERY_TRACKING_FILE
 
         # Создаем единый event loop для всего приложения
         self.loop = None
@@ -155,6 +158,130 @@ class BirthdayBot:
             )
             return "Поздравь {name} с днем рождения!"
 
+    def load_delivery_tracking(self) -> Dict:
+        """
+        Загружает данные об отправленных поздравлениях
+        
+        Returns:
+            Словарь с данными об отправленных поздравлениях
+        """
+        try:
+            with open(self.delivery_tracking_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                current_year = datetime.now().year
+                
+                # Если год изменился, создаем новую структуру
+                if data.get("year") != current_year:
+                    logger.info(f"Новый год {current_year}, сбрасываем историю отправок")
+                    return {"year": current_year, "sent_messages": {}}
+                
+                return data
+        except FileNotFoundError:
+            logger.debug(f"Файл {self.delivery_tracking_path} не найден, создаем новый")
+            current_year = datetime.now().year
+            return {"year": current_year, "sent_messages": {}}
+        except json.JSONDecodeError:
+            logger.error(f"Ошибка чтения JSON из файла {self.delivery_tracking_path}")
+            current_year = datetime.now().year
+            return {"year": current_year, "sent_messages": {}}
+
+    def save_delivery_tracking(self, data: Dict) -> None:
+        """
+        Сохраняет данные об отправленных поздравлениях
+        
+        Args:
+            data: Словарь с данными для сохранения
+        """
+        try:
+            with open(self.delivery_tracking_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.debug("Данные отслеживания отправки сохранены")
+        except Exception as e:
+            logger.error(f"Ошибка сохранения данных отслеживания: {e}")
+
+    def mark_message_sent(self, user_name: str, birthday: str, is_belated: bool = False) -> None:
+        """
+        Отмечает сообщение как отправленное
+        
+        Args:
+            user_name: Имя пользователя
+            birthday: Дата рождения в формате DD.MM
+            is_belated: Флаг запоздалого поздравления
+        """
+        tracking_data = self.load_delivery_tracking()
+        sent_date = datetime.now().strftime("%Y-%m-%d")
+        
+        if birthday not in tracking_data["sent_messages"]:
+            tracking_data["sent_messages"][birthday] = {}
+            
+        tracking_data["sent_messages"][birthday][user_name] = {
+            "birthday": birthday,
+            "sent": True,
+            "sent_date": sent_date,
+            "is_belated": is_belated,
+            "attempts": tracking_data["sent_messages"][birthday].get(user_name, {}).get("attempts", 0) + 1
+        }
+        
+        self.save_delivery_tracking(tracking_data)
+        logger.info(f"Отправка поздравления для {user_name} ({birthday}) отмечена как выполненная")
+
+    def is_message_sent(self, user_name: str, birthday: str) -> bool:
+        """
+        Проверяет, было ли отправлено поздравление для пользователя
+        
+        Args:
+            user_name: Имя пользователя
+            birthday: Дата рождения в формате DD.MM
+            
+        Returns:
+            True, если поздравление было отправлено
+        """
+        tracking_data = self.load_delivery_tracking()
+        return (birthday in tracking_data["sent_messages"] and 
+                user_name in tracking_data["sent_messages"][birthday] and
+                tracking_data["sent_messages"][birthday][user_name].get("sent", False))
+
+    def get_pending_birthdays(self) -> List[Dict]:
+        """
+        Возвращает список пользователей, которым нужно отправить поздравления
+        (в день рождения или в течение 2 дней после)
+        
+        Returns:
+            Список словарей с данными пользователей и флагом is_belated
+        """
+        users, _, _ = self.load_config()
+        if not users:
+            return []
+
+        pending_users = []
+        current_date = datetime.now()
+        
+        # Проверяем последние RETRY_DAYS + 1 день (включая сегодня)
+        for days_ago in range(RETRY_DAYS + 1):
+            check_date = current_date - timedelta(days=days_ago)
+            check_date_str = check_date.strftime(DATE_FORMAT)
+            is_belated = days_ago > 0
+            
+            # Ищем пользователей с днем рождения в эту дату
+            for user in users:
+                name = user.get("name", DEFAULT_UNKNOWN_NAME)
+                birthday = user.get("birthday")
+                
+                if not birthday:
+                    continue
+                    
+                if birthday == check_date_str:
+                    # Проверяем, не было ли уже отправлено поздравление
+                    if not self.is_message_sent(name, birthday):
+                        user_copy = user.copy()
+                        user_copy["is_belated"] = is_belated
+                        user_copy["days_late"] = days_ago
+                        pending_users.append(user_copy)
+                        logger.debug(f"Найден неотправленный подарок для {name} ({birthday}), дней назад: {days_ago}")
+
+        logger.info(f"Найдено неотправленных поздравлений: {len(pending_users)}")
+        return pending_users
+
     def get_today_birthdays(self) -> List[Dict]:
         """
         Возвращает список пользователей, у которых сегодня день рождения
@@ -186,19 +313,25 @@ class BirthdayBot:
         logger.info(f"Найдено именинников на сегодня: {len(birthday_users)}")
         return birthday_users
 
-    def generate_birthday_message(self, name: str) -> str:
+    def generate_birthday_message(self, name: str, is_belated: bool = False) -> str:
         """
         Генерирует персонализированное поздравление с помощью GigaChat
 
         Args:
             name: Имя именинника
+            is_belated: Флаг запоздалого поздравления
 
         Returns:
             Текст поздравления
         """
         try:
             prompt_template = self.load_birthday_prompt()
-            prompt = prompt_template.format(name=name)
+            
+            # Модифицируем промпт для запоздалых поздравлений
+            if is_belated:
+                prompt = f"Поздравь {name} с прошедшим днем рождения! Извинись за опоздание и пожелай всего наилучшего."
+            else:
+                prompt = prompt_template.format(name=name)
 
             response = self.gigachat.invoke(prompt)
             return response.content
@@ -206,20 +339,23 @@ class BirthdayBot:
         except Exception as e:
             logger.error(f"Ошибка при генерации поздравления: {e}")
             # Возвращаем красивое стандартное поздравление при ошибке
-            return DEFAULT_BIRTHDAY_MESSAGE.format(name=name)
+            if is_belated:
+                return DEFAULT_BELATED_MESSAGE.format(name=name)
+            else:
+                return DEFAULT_BIRTHDAY_MESSAGE.format(name=name)
 
     async def send_birthday_messages(self) -> None:
-        """Отправляет поздравления всем сегодняшним именинникам"""
-        birthday_users = self.get_today_birthdays()
+        """Отправляет поздравления всем именинникам (включая запоздалые)"""
+        pending_users = self.get_pending_birthdays()
 
-        if not birthday_users:
-            logger.info("Сегодня нет именинников")
+        if not pending_users:
+            logger.info("Нет неотправленных поздравлений")
             return
 
         # Загружаем конфигурацию для получения default_chat_id
         _, _, config_default_chat = self.load_config()
 
-        for user in birthday_users:
+        for user in pending_users:
             await self._send_birthday_message_to_user(user, config_default_chat)
 
     async def _send_birthday_message_to_user(
@@ -235,6 +371,9 @@ class BirthdayBot:
         try:
             name = user.get("name", DEFAULT_USER_NAME)
             username = user.get("username", "")
+            birthday = user.get("birthday")
+            is_belated = user.get("is_belated", False)
+            days_late = user.get("days_late", 0)
 
             # Определяем chat_id для отправки сообщения
             user_chat_id = self._get_chat_id_for_user(user, config_default_chat, name)
@@ -242,12 +381,19 @@ class BirthdayBot:
                 return
 
             # Генерируем и отправляем поздравление
-            birthday_message = self.generate_birthday_message(name)
+            birthday_message = self.generate_birthday_message(name, is_belated)
             final_message = self._format_final_message(username, name, birthday_message)
 
             await self._send_telegram_message(user_chat_id, final_message)
 
-            logger.info(f"Поздравление отправлено для {name} в чат {user_chat_id}")
+            # Отмечаем сообщение как отправленное
+            self.mark_message_sent(name, birthday, is_belated)
+
+            status_msg = "запоздалое поздравление" if is_belated else "поздравление"
+            if is_belated:
+                logger.info(f"{status_msg} отправлено для {name} в чат {user_chat_id} (опоздание: {days_late} дн.)")
+            else:
+                logger.info(f"{status_msg} отправлено для {name} в чат {user_chat_id}")
 
             # Небольшая задержка между сообщениями для избежания лимитов
             await asyncio.sleep(MESSAGE_DELAY)

@@ -114,6 +114,9 @@ venv.bak/
 # Configuration with personal data
 users_config.json
 
+# Delivery tracking data
+delivery_tracking.json
+
 # Log files
 birthday_bot.log
 *.log

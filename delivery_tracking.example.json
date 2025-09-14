@@ -1,0 +1,23 @@
+{
+  "year": 2025,
+  "sent_messages": {
+    "22.01": {
+      "Полина": {
+        "birthday": "22.01",
+        "sent": true,
+        "sent_date": "2025-01-22",
+        "is_belated": false,
+        "attempts": 1
+      }
+    },
+    "12.12": {
+      "Светлана": {
+        "birthday": "12.12",
+        "sent": true,
+        "sent_date": "2025-12-14",
+        "is_belated": true,
+        "attempts": 2
+      }
+    }
+  }
+}
